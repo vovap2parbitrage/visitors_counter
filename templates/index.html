@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YOLO + ReID Детекція | Dark Mode</title>
+<style>
+    :root {
+        --background-dark: #1E1E1E; 
+        --card-dark: #2A2A2A; 
+        --text-light: #E0E0E0; 
+        --text-secondary: #AAAAAA; 
+        --accent-orange: #FF6600; 
+        --accent-green: #00A693; 
+        --border-color: #383838;
+        --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        --shadow-subtle: 0 2px 4px rgba(0, 0, 0, 0.4);
+        --border-radius: 6px;
+    }
+
+    body {
+        font-family: var(--font-family);
+        background-color: var(--background-dark);
+        color: var(--text-light);
+        margin: 0;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .header {
+        width: 100%;
+        max-width: 1200px;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    h1 {
+        color: var(--accent-green);
+        font-size: 2em;
+        font-weight: 300;
+    }
+
+    .main-grid {
+        width: 100%;
+        max-width: 1200px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 20px;
+        margin-bottom: 20px;
+    }
+    
+    @media (min-width: 992px) {
+        .main-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
+    .panel {
+        background-color: var(--card-dark);
+        border-radius: var(--border-radius);
+        padding: 20px;
+        min-height: 400px;
+        border: 1px solid var(--border-color);
+        position: relative;
+    }
+
+    .panel-header {
+        color: var(--text-light);
+        font-size: 1.1em;
+        font-weight: 600;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .upload-area {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 300px;
+        border: 2px dashed var(--text-secondary);
+        border-radius: var(--border-radius);
+        cursor: pointer;
+        transition: border-color 0.3s;
+        position: relative; 
+    }
+
+    .upload-area:hover {
+        border-color: var(--accent-green);
+    }
+
+    .upload-area input[type=file] {
+        opacity: 0;
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+    }
+    
+    .upload-icon {
+        font-size: 3em;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+    }
+    
+    .upload-text {
+        color: var(--text-secondary);
+        text-align: center;
+        margin: 5px 0;
+    }
+
+    .controls-panel {
+        background-color: var(--card-dark);
+        width: 100%;
+        max-width: 1200px;
+        padding: 20px;
+        border-radius: var(--border-radius);
+        border: 1px solid var(--border-color);
+        margin-bottom: 20px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 15px;
+    }
+
+    .control-group {
+        flex: 1 1 45%; 
+        min-width: 250px;
+    }
+
+    .control-group label {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--text-light);
+        font-size: 0.9em;
+    }
+
+    .action-button {
+        padding: 12px 20px;
+        border: none;
+        border-radius: var(--border-radius);
+        font-size: 1em;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.3s;
+    }
+
+    .submit-button {
+        background-color: var(--accent-orange);
+        color: var(--card-dark);
+    }
+
+    .submit-button:hover {
+        background-color: #E65C00;
+    }
+
+    .clear-button {
+        background-color: #383838;
+        color: var(--text-light);
+    }
+
+    .clear-button:hover {
+        background-color: #4C4C4C;
+    }
+
+    .results-content {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        height: 100%;
+        text-align: center;
+    }
+
+    #result img, #result video {
+        max-width: 100%;
+        height: auto;
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow-subtle);
+    }
+    
+    #progressBar { 
+        width: 100%; 
+        background-color: #4C4C4C; 
+        margin-top: 20px; 
+        border-radius: 50px; 
+        overflow: hidden;
+        height: 25px;
+    }
+    #progressBar div { 
+        height: 100%; 
+        width: 0%; 
+        background-color: var(--accent-green); 
+        text-align: center; 
+        line-height: 25px;
+        color: var(--background-dark); 
+        font-weight: bold;
+        transition: width 0.5s ease;
+    }
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>YOLO + ReID Детекція Об'єктів 🔎</h1>
+    <p style="color: var(--text-secondary);">Аналіз відео та зображень з ідентифікацією (ReID)</p>
+</div>
+
+<div class="main-grid">
+    <div class="panel">
+        <div class="panel-header">Вхідне Медіа та Управління</div>
+        
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="upload-area" id="dropArea">
+                <span class="upload-icon">⬆️</span>
+                <p class="upload-text">Перетягніть медіафайл сюди</p>
+                <p class="upload-text">-- або --</p>
+                <p class="upload-text">Натисніть, щоб завантажити</p>
+                <input id="mediaFile" name="file" type="file" accept="image/*,video/*" required>
+            </div>
+        </form>
+        <p id="fileNameDisplay" style="text-align: center; margin-top: 15px; color: var(--accent-green);"></p>
+
+        <div id="progressBar"><div></div></div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">Результати Детекції та ReID</div>
+        <div class="results-content" id="result">
+            <p style="color: var(--text-secondary);">Результат (зображення або відео) з'явиться тут після обробки.</p>
+        </div>
+    </div>
+</div>
+
+<div class="controls-panel">
+    <div class="control-group">
+        <label for="confThreshold">Налаштування Алгоритму</label>
+        <p style="color: var(--text-secondary); font-size: 0.8em; margin: 0;">Пороги налаштовуються на бекенді:</p>
+        <ul style="color: var(--text-secondary); font-size: 0.8em; margin: 5px 0 0 20px;">
+            <li>YOLO Conf Threshold: 0.6</li>
+            <li>Skip Frames: 3</li>
+            <li>ReID Match Threshold: 0.2</li>
+        </ul>
+    </div>
+    
+    <div style="flex: 1 1 100%; display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+        <button class="action-button clear-button" id="clearButton">Очистити</button>
+        <button class="action-button submit-button" id="submitButton">Розпочати Детекцію</button>
+    </div>
+</div>
+
+<script>
+let currentJobId = null;
+
+function updateFileName() {
+    const fileInput = document.getElementById('mediaFile');
+    const display = document.getElementById('fileNameDisplay');
+    if (fileInput.files.length > 0) {
+        display.innerText = '✅ Файл готовий: ' + fileInput.files[0].name;
+    } else {
+        display.innerText = '';
+    }
+}
+
+function clearInterface() {
+    document.getElementById('mediaFile').value = ''; 
+    document.getElementById('fileNameDisplay').innerText = '';
+    document.querySelector('#result').innerHTML = '<p style="color: var(--text-secondary);">Результат зявиться тут.</p>'; 
+    document.querySelector('#progressBar div').style.width = '0%';
+    document.querySelector('#progressBar div').innerText = '';
+    currentJobId = null;
+}
+
+async function handleSubmission() {
+    const fileInput = document.getElementById('mediaFile');
+    const resultDiv = document.querySelector('#result');
+    const progressDiv = document.querySelector('#progressBar div');
+    
+    if (fileInput.files.length === 0) {
+        alert("Будь ласка, завантажте файл.");
+        return;
+    }
+    
+    // Скидання стану
+    resultDiv.innerHTML = '<h3>⏳ Обробка...</h3>';
+    progressDiv.style.width = '0%';
+    progressDiv.innerText = '0%';
+    
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const isVideo = file.type.startsWith('video');
+    const uploadUrl = isVideo ? '/upload_video' : '/upload_image';
+
+    try {
+        const response = await fetch(uploadUrl, { method:'POST', body: formData });
+        if (!response.ok) {
+             throw new Error(`Помилка завантаження: ${response.status} ${response.statusText}`);
+        }
+
+        if (isVideo) {
+            const data = await response.json();
+            currentJobId = data.job_id;
+            pollProgress(data.result_path, currentJobId);
+        } else {
+            const html = await response.text();
+            const imgSourceMatch = html.match(/src="([^"]+)"/);
+            if (imgSourceMatch && imgSourceMatch[1]) {
+                resultDiv.innerHTML = `<h3>✅ Результат зображення:</h3><img src="${imgSourceMatch[1]}" alt="Detection Result">`;
+            } else {
+                resultDiv.innerHTML = '<h3>✅ Результат зображення:</h3>' + html;
+            }
+            
+            progressDiv.style.width = '100%';
+            progressDiv.innerText = '100%';
+        }
+
+    } catch (error) {
+        console.error(error);
+        resultDiv.innerHTML = `<h3>❌ Помилка: ${error.message}</h3>`;
+        progressDiv.style.width = '0%';
+        progressDiv.innerText = '';
+    }
+}
+
+function pollProgress(resultPath, jobId) {
+    const resultDiv = document.querySelector('#result');
+    const progressDiv = document.querySelector('#progressBar div');
+    
+    const interval = setInterval(async () => {
+        const res = await fetch('/progress/' + jobId);
+        const prog = await res.json();
+        const percent = Math.min(100, Math.round(prog.progress));
+
+        progressDiv.style.width = percent + '%';
+        progressDiv.innerText = percent + '%';
+
+        if (percent >= 100) {
+            clearInterval(interval);
+            resultDiv.innerHTML = `
+                <h3>✅ Відео Оброблене!</h3>
+                <div class="video-wrapper">
+                    <video width="100%" controls autoplay loop muted>
+                        <source src="${resultPath}" type="video/mp4">
+                        Ваш браузер не підтримує тег відео.
+                    </video>
+                </div>
+            `;
+            currentJobId = null;
+        }
+    }, 500);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const dropArea = document.getElementById('dropArea');
+    const mediaFileInput = document.getElementById('mediaFile');
+    
+    document.getElementById('submitButton').addEventListener('click', handleSubmission); 
+    document.getElementById('clearButton').addEventListener('click', clearInterface);
+    
+    document.getElementById('mediaFile').addEventListener('change', updateFileName);
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropArea.addEventListener(eventName, () => dropArea.style.borderColor = 'var(--accent-orange)', false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, () => dropArea.style.borderColor = 'var(--text-secondary)', false);
+    });
+
+    dropArea.addEventListener('drop', handleDrop, false);
+
+    function handleDrop(e) {
+      let dt = e.dataTransfer;
+      let files = dt.files;
+      if (files.length > 0) {
+        mediaFileInput.files = files;
+        updateFileName();
+      }
+    }
+});
+</script>
+</body>
+</html>

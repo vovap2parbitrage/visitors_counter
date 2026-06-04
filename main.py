@@ -1,212 +1,229 @@
 import os
 import shutil
-import asyncio
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from pathlib import Path
+import time
+import uuid
 from typing import Dict
-from ultralytics import YOLO 
+
+from fastapi import FastAPI, File, UploadFile, Request, Form
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
+from ultralytics import YOLO
+
 import cv2
-import torch
-import torchvision.transforms as T
-from torchvision.models import resnet18, ResNet18_Weights
-from scipy.spatial.distance import cosine
 import numpy as np
 
-app = FastAPI(title="YOLO + ReID Detection")
+app = FastAPI()
 
 UPLOAD_DIR = "uploads"
-IMAGE_OUTPUT_DIR = "detection_results"
-VIDEO_OUTPUT_DIR = "detection_results_video"
+PROCESSED_DIR = "detection_results_video"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(IMAGE_OUTPUT_DIR, exist_ok=True)
-os.makedirs(VIDEO_OUTPUT_DIR, exist_ok=True)
+os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-app.mount("/static", StaticFiles(directory="."), name="static")
+app.mount("/detection_results_video", StaticFiles(directory=PROCESSED_DIR), name="detection_results_video")
 
-progress: Dict[str, float] = {}
+templates = Jinja2Templates(directory="templates")
 
-class IdentityManager:
-    def __init__(self):
-        self.known_identities = {}
-        self.active_ids = set()
-        self.encoder = resnet18(weights=ResNet18_Weights.DEFAULT)
-        self.encoder = torch.nn.Sequential(*(list(self.encoder.children())[:-1]))
-        self.encoder.eval()
-        
-        self.preprocess = T.Compose([
-            T.ToPILImage(),
-            T.Resize((256, 128)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
+job_status: Dict[str, dict] = {}
 
-    def get_embedding(self, img_crop):
-        if len(img_crop.shape) == 3 and img_crop.shape[2] == 3:
-            img_crop = cv2.cvtColor(img_crop, cv2.COLOR_BGR2RGB)
-            
-        input_tensor = self.preprocess(img_crop).unsqueeze(0)
-        with torch.no_grad():
-            embedding = self.encoder(input_tensor).flatten().numpy()
-        return embedding / np.linalg.norm(embedding) 
+LINE_START = (0, 0)
+LINE_END = (0, 0)
+LINE_COLOR = (0, 0, 255)
+TEXT_COLOR = (255, 255, 255)
 
-    def resolve_identity(self, img_crop, current_tracker_id, match_threshold=0.2, alpha=0.4):
-        new_embedding = self.get_embedding(img_crop)
-        best_match_id = None
-        min_dist = float('inf')
+def remove_file(path: str) -> None:
+    if os.path.exists(path):
+        os.remove(path)
 
-        for known_id, known_embedding in self.known_identities.items():
-            dist = cosine(new_embedding, known_embedding)
-            if dist < min_dist and dist < match_threshold:
-                min_dist = dist
-                best_match_id = known_id
+def orientation(p, q, r):
+    val = (q[1] - p[1]) * (r[0] - q[0]) - \
+          (q[0] - p[0]) * (r[1] - q[1])
+    return val
 
-        if best_match_id is not None:
-            old_emb = self.known_identities[best_match_id]
-            self.known_identities[best_match_id] = (1 - alpha) * old_emb + alpha * new_embedding
-            self.known_identities[best_match_id] /= np.linalg.norm(self.known_identities[best_match_id])
-            return best_match_id
-        else:
-            self.known_identities[current_tracker_id] = new_embedding
-            return current_tracker_id
+def run_counter_async(input_path: str, output_filename: str, job_id: str, conf_threshold: float, skip_frames: int,
+                      line_p1_x: int, line_p1_y: int, line_p2_x: int, line_p2_y: int):
+    job_status[job_id]["status"] = "Processing"
+    is_closed = False
 
-MODEL_PATH = 'runs/detect/train9/weights/best.pt' 
-try:
-    model = YOLO(MODEL_PATH)
-except Exception as e:
-    print(f"Помилка завантаження моделі YOLO за шляхом '{MODEL_PATH}': {e}")
+    try:
+        model = YOLO("runs/detect/train10/best.pt")
 
-id_manager = IdentityManager()
+        in_count = 0
+        out_count = 0
+        counted_ids = set()
 
-def detect_image(image_path, output_dir=IMAGE_OUTPUT_DIR):
-    results = model(image_path)
-    
-    base_name = Path(image_path).stem
-    suffix = Path(image_path).suffix
-    output_filename = f"{base_name}_detected{suffix}"
-    output_path = os.path.join(output_dir, output_filename)
-    
-    im_bgr = results[0].plot() 
-    cv2.imwrite(output_path, im_bgr)
-    
-    return output_path
+        video = cv2.VideoCapture(input_path)
+        if not video.isOpened():
+            raise Exception("Не вдалося відкрити відеофайл")
 
-def process_video_with_progress(video_path: str, output_path: str, job_id: str,
-                                skip_frames=3, min_frames=5, conf=0.6):
-    video = cv2.VideoCapture(video_path)
-    if not video.isOpened():
-        progress[job_id] = -1.0 
-        return
+        frame_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = video.get(cv2.CAP_PROP_FPS)
-    
-    if fps == 0:
-        fps = 30 
-        
-    effective_fps = fps / skip_frames
-    
-    fourcc = cv2.VideoWriter_fourcc(*'X264') 
+        fps = int(video.get(cv2.CAP_PROP_FPS) / skip_frames) if skip_frames > 0 else int(video.get(cv2.CAP_PROP_FPS))
+        total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_number = 0
 
-    out = cv2.VideoWriter(output_path, fourcc, effective_fps, (frame_width, frame_height))
+        l1 = (line_p1_x, line_p1_y)
+        l2 = (line_p2_x, line_p2_y)
 
-    track_history = {}
-    i = 0
+        output_path = os.path.join(PROCESSED_DIR, output_filename)
+        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'X264'), fps, (frame_width, frame_height))
 
-    while video.isOpened():
-        ret = video.grab() 
-        if not ret:
-            break
+        while video.isOpened():
+            ret, frame = video.read()
+            if not ret:
+                break
 
-        i += 1
-        if (i - 1) % skip_frames != 0:
-            continue
+            frame_number += 1
 
-        success, frame = video.retrieve() 
-        if not success:
-            break
+            if skip_frames > 0 and frame_number % skip_frames != 0:
+                continue
 
-        results = model.track(frame, persist=True, conf=conf, verbose=False, tracker="bytetrack.yaml")
-        id_manager.active_ids = set()
+            results = model.track(
+                frame,
+                conf=conf_threshold,
+                persist=True,
+                verbose=False
+            )
 
-        annotated_frame = frame.copy()
+            if results and results[0].boxes.id is not None:
+                boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
+                ids = results[0].boxes.id.cpu().numpy().astype(int)
+                confidence = results[0].boxes.conf.cpu()
 
-        if results[0].boxes.id is not None:
-            boxes = results[0].boxes.xyxy.cpu().numpy()
-            track_ids = results[0].boxes.id.int().cpu().numpy()
-            classes = results[0].boxes.cls.int().cpu().numpy()
-            
-            active_now = set(track_ids)
-            id_manager.active_ids = active_now
+                for box, track_id, conf in zip(boxes, ids, confidence):
+                    x1, y1, x2, y2 = box
 
-            for box, track_id, cls in zip(boxes, track_ids, classes):
-                if cls != 0:
-                    continue
-                
-                track_history[track_id] = track_history.get(track_id, 0) + 1
-                
-                if track_history[track_id] <= min_frames:
-                    continue
+                    center = (x1 + x2) // 2, (y1 + y2) // 2
 
-                x1, y1, x2, y2 = map(int, box)
-                
-                person_crop = frame[y1:y2, x1:x2]
-                if person_crop.size > 0 and person_crop.shape[0] > 10 and person_crop.shape[1] > 10:
-                    final_id = id_manager.resolve_identity(person_crop, track_id)
-                    
-                    color = (0, 255, 0) 
-                    
-                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(annotated_frame, f"ID: {final_id}", (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    if track_id not in counted_ids:
+                        o1 = orientation(l1, l2, center)
 
-        out.write(annotated_frame)
+                        if abs(center[0] - line_p1_x) < 50:
+                            if o1 > 0:
+                                out_count += 1
+                            else:
+                                in_count += 1
 
-        if frame_count > 0:
-            progress[job_id] = (i / frame_count) * 100
-        else:
-             progress[job_id] = 100.0
-             
-        track_history = {k: v for k, v in track_history.items() if k in active_now}
+                            counted_ids.add(track_id)
+                            cv2.circle(frame, center, 20, (0, 255, 0), -1)
 
-    video.release()
-    out.release()
-    progress[job_id] = 100.0
+                        conf_label = f"Person:{conf:.2f}"
+                        cv2.circle(frame, center, 5, (255, 0, 255), -1)
+                        cv2.rectangle(frame, (x1, y1),(x2, y2),(0, 255, 0), 2)
+                        cv2.putText(frame, conf_label, (x1, y1-4), 0, 0.6, (0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+
+            cv2.line(frame, l1, l2, LINE_COLOR, 2)
+
+            current_visitors = max(0, in_count - out_count)
+
+            info_text = [
+                f"In: {in_count}",
+                f"Out: {out_count}",
+                f"Total: {current_visitors}"
+            ]
+
+            cv2.rectangle(frame, (0, 0), (250, 120), (0,0,0), -1)
+            for idx, text in enumerate(info_text):
+                cv2.putText(frame, text, (10, 35 + (idx * 35)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, TEXT_COLOR, 2)
+
+            if not is_closed:
+                cv2.imshow("Tracking", frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                cv2.destroyAllWindows()
+                is_closed = True
+            out.write(frame)
+
+            progress_percent = int((frame_number / total_frames) * 100)
+            job_status[job_id]["progress"] = min(100, progress_percent)
+
+        video.release()
+        out.release()
+
+        cv2.destroyAllWindows()
+
+        job_status[job_id]["progress"] = 100
+        job_status[job_id]["status"] = "Completed"
+        job_status[job_id]["result_file"] = output_filename
+
+    except Exception as e:
+        print(f"Помилка обробки: {e}")
+        job_status[job_id]["progress"] = -1
+        job_status[job_id]["status"] = f"Failed: {str(e)}"
+
+        cv2.destroyAllWindows()
+
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
-    return FileResponse("templates/index.html")
-
-@app.post("/upload_image")
-async def upload_image(file: UploadFile = File(...)):
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    result_path = detect_image(file_path)
-    
-    return HTMLResponse(f'<h3>Detection result:</h3><img src="/static/{result_path}" width="100%">')
+async def get_index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/upload_video")
-async def upload_video(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    base_name = Path(file.filename).stem
-    output_filename = f"{base_name}_reid.mp4"
-    output_path = os.path.join(VIDEO_OUTPUT_DIR, output_filename)
-    
-    job_id = file.filename + "_job"
-    progress[job_id] = 0.0
-    
-    background_tasks.add_task(process_video_with_progress, file_path, output_path, job_id)
-    
-    return JSONResponse({"job_id": job_id, "result_path": "/static/" + output_path})
+async def upload_video(
+    file: UploadFile = File(...),
+    skip_frames: int = Form(3),
+    conf: float = Form(0.6),
+    line_p1_x: int = Form(...),
+    line_p1_y: int = Form(...),
+    line_p2_x: int = Form(...),
+    line_p2_y: int = Form(...)
+):
+    if not file.content_type.startswith("video/"):
+        return JSONResponse(status_code=400, content={"message": "Тільки відеофайли дозволено."})
+
+    job_id = str(uuid.uuid4())
+    input_filename = f"{job_id}_{file.filename}"
+    output_filename = f"processed_{job_id}.mp4"
+    input_path = os.path.join(UPLOAD_DIR, input_filename)
+
+    try:
+        with open(input_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": f"Не вдалося зберегти файл: {e}"})
+
+    job_status[job_id] = {
+        "progress": 0,
+        "status": "Queued",
+        "result_file": output_filename,
+        "input_file": input_path
+    }
+
+    task = BackgroundTask(
+        run_counter_async,
+        input_path,
+        output_filename,
+        job_id,
+        conf,
+        skip_frames,
+        line_p1_x,
+        line_p1_y,
+        line_p2_x,
+        line_p2_y
+    )
+
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "message": "Обробка розпочата",
+            "result_path": f"/detection_results_video/{output_filename}"
+        },
+        background=task
+    )
+
 
 @app.get("/progress/{job_id}")
 async def get_progress(job_id: str):
-    return JSONResponse({"progress": progress.get(job_id, 0.0)})
+    status = job_status.get(job_id)
+    if not status:
+        return JSONResponse(status_code=404, content={"message": "Завдання не знайдено."})
+
+    if status["progress"] >= 100 or status["progress"] < 0:
+        if "input_file" in status and os.path.exists(status["input_file"]):
+            os.remove(status["input_file"])
+            del status["input_file"]
+
+    return JSONResponse(content={"progress": status["progress"], "status": status["status"]})

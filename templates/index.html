@@ -3,15 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YOLO + ReID Детекція | Dark Mode</title>
+<title>YOLO Line Crossing Counter</title>
+
 <style>
     :root {
-        --background-dark: #1E1E1E; 
-        --card-dark: #2A2A2A; 
-        --text-light: #E0E0E0; 
-        --text-secondary: #AAAAAA; 
-        --accent-orange: #FF6600; 
-        --accent-green: #00A693; 
+        --background-dark: #1E1E1E;
+        --card-dark: #2A2A2A;
+        --text-light: #E0E0E0;
+        --text-secondary: #AAAAAA;
+        --accent-orange: #FF6600;
+        --accent-green: #00A693;
         --border-color: #383838;
         --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         --shadow-subtle: 0 2px 4px rgba(0, 0, 0, 0.4);
@@ -32,7 +33,7 @@
     .header {
         width: 100%;
         max-width: 1200px;
-        text-align: center;
+        text-align: left;
         margin-bottom: 20px;
     }
 
@@ -50,7 +51,7 @@
         gap: 20px;
         margin-bottom: 20px;
     }
-    
+
     @media (min-width: 992px) {
         .main-grid {
             grid-template-columns: 1fr 1fr;
@@ -75,17 +76,54 @@
         border-bottom: 1px solid var(--border-color);
     }
 
+    .controls-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 15px;
+        padding: 10px;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+    }
+
+    .control-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .control-item label {
+        font-size: 0.9em;
+        color: var(--text-secondary);
+    }
+
+    .control-item input[type=number] {
+        background-color: var(--background-dark);
+        color: var(--text-light);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        padding: 5px 10px;
+        width: 80px;
+        text-align: right;
+        -moz-appearance: textfield;
+    }
+    .control-item input::-webkit-outer-spin-button,
+    .control-item input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
     .upload-area {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        height: 300px;
+        height: 150px;
         border: 2px dashed var(--text-secondary);
         border-radius: var(--border-radius);
         cursor: pointer;
         transition: border-color 0.3s;
-        position: relative; 
+        position: relative;
     }
 
     .upload-area:hover {
@@ -101,13 +139,7 @@
         top: 0;
         left: 0;
     }
-    
-    .upload-icon {
-        font-size: 3em;
-        color: var(--text-secondary);
-        margin-bottom: 10px;
-    }
-    
+
     .upload-text {
         color: var(--text-secondary);
         text-align: center;
@@ -115,29 +147,13 @@
     }
 
     .controls-panel {
-        background-color: var(--card-dark);
         width: 100%;
         max-width: 1200px;
-        padding: 20px;
-        border-radius: var(--border-radius);
-        border: 1px solid var(--border-color);
         margin-bottom: 20px;
         display: flex;
         flex-wrap: wrap;
-        justify-content: space-between;
-        gap: 15px;
-    }
-
-    .control-group {
-        flex: 1 1 45%; 
-        min-width: 250px;
-    }
-
-    .control-group label {
-        display: block;
-        margin-bottom: 5px;
-        color: var(--text-light);
-        font-size: 0.9em;
+        justify-content: flex-end;
+        gap: 10px;
     }
 
     .action-button {
@@ -147,7 +163,7 @@
         font-size: 1em;
         font-weight: 600;
         cursor: pointer;
-        transition: background-color 0.3s;
+        transition: background-color 0.3s, opacity 0.3s;
     }
 
     .submit-button {
@@ -183,188 +199,395 @@
         border-radius: var(--border-radius);
         box-shadow: var(--shadow-subtle);
     }
-    
-    #progressBar { 
-        width: 100%; 
-        background-color: #4C4C4C; 
-        margin-top: 20px; 
-        border-radius: 50px; 
+
+    #progressBar {
+        width: 100%;
+        background-color: #4C4C4C;
+        margin-top: 20px;
+        border-radius: 50px;
         overflow: hidden;
         height: 25px;
+        display: none; /* Приховано за замовчуванням */
     }
-    #progressBar div { 
-        height: 100%; 
-        width: 0%; 
-        background-color: var(--accent-green); 
-        text-align: center; 
+    #progressBar div {
+        height: 100%;
+        width: 0%;
+        background-color: var(--accent-green);
+        text-align: center;
         line-height: 25px;
-        color: var(--background-dark); 
+        color: var(--background-dark);
         font-weight: bold;
         transition: width 0.5s ease;
+    }
+
+    .video-preview-container {
+        position: relative;
+        width: 100%;
+        max-width: 600px; /* Максимальна ширина для прев'ю */
+        margin-top: 20px;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        overflow: hidden;
+        background-color: black;
+        display: none; /* Приховано за замовчуванням */
+    }
+
+    .video-preview {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+
+    .drawing-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        cursor: crosshair;
+    }
+
+    .point-marker {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        background-color: var(--accent-orange);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none; /* Щоб не блокувати кліки на canvas */
     }
 </style>
 </head>
 <body>
+
 <div class="header">
-    <h1>YOLO + ReID Детекція Об'єктів 🔎</h1>
-    <p style="color: var(--text-secondary);">Аналіз відео та зображень з ідентифікацією (ReID)</p>
+    <h1>YOLO Лічильник Перетину Лінії</h1>
+    <p style="color: var(--text-secondary);">Відстеження об'єктів та підрахунок перетинів</p>
 </div>
 
 <div class="main-grid">
     <div class="panel">
-        <div class="panel-header">Вхідне Медіа та Управління</div>
-        
+        <div class="panel-header">Вхідне Відео та Параметри</div>
+
         <form id="uploadForm" enctype="multipart/form-data">
             <div class="upload-area" id="dropArea">
-                <span class="upload-icon">⬆️</span>
-                <p class="upload-text">Перетягніть медіафайл сюди</p>
+                <p class="upload-text">Перетягніть медіафайл сюди (лише відео)</p>
                 <p class="upload-text">-- або --</p>
                 <p class="upload-text">Натисніть, щоб завантажити</p>
-                <input id="mediaFile" name="file" type="file" accept="image/*,video/*" required>
+                <input id="mediaFile" name="file" type="file" accept="video/*" required>
             </div>
         </form>
+
         <p id="fileNameDisplay" style="text-align: center; margin-top: 15px; color: var(--accent-green);"></p>
 
+        <div class="video-preview-container" id="videoPreviewContainer">
+            <video class="video-preview" id="videoPreview" controls muted></video>
+            <canvas class="drawing-canvas" id="drawingCanvas"></canvas>
+            <div id="point1Marker" class="point-marker" style="display: none;"></div>
+            <div id="point2Marker" class="point-marker" style="display: none;"></div>
+        </div>
+        <p id="lineCoordinatesDisplay" style="text-align: center; margin-top: 10px; color: var(--text-secondary);"></p>
+
+        <div class="controls-group">
+            <div class="control-item">
+                <label for="skipFrames">Пропускати кадри (Skip Frames):</label>
+                <input type="number" id="skipFrames" name="skip_frames" value="3" min="1" step="1">
+            </div>
+            <div class="control-item">
+                <label for="confThreshold">Поріг впевненості YOLO (Confidence, 0.0-1.0):</label>
+                <input type="number" id="confThreshold" name="conf" value="0.6" min="0.0" max="1.0" step="0.05">
+            </div>
+        </div>
         <div id="progressBar"><div></div></div>
     </div>
 
     <div class="panel">
-        <div class="panel-header">Результати Детекції та ReID</div>
+        <div class="panel-header">Результати Обробки</div>
         <div class="results-content" id="result">
-            <p style="color: var(--text-secondary);">Результат (зображення або відео) з'явиться тут після обробки.</p>
+            <p style="color: var(--text-secondary);">Результат з'явиться тут після обробки.</p>
         </div>
     </div>
 </div>
 
 <div class="controls-panel">
-    <div class="control-group">
-        <label for="confThreshold">Налаштування Алгоритму</label>
-        <p style="color: var(--text-secondary); font-size: 0.8em; margin: 0;">Пороги налаштовуються на бекенді:</p>
-        <ul style="color: var(--text-secondary); font-size: 0.8em; margin: 5px 0 0 20px;">
-            <li>YOLO Conf Threshold: 0.6</li>
-            <li>Skip Frames: 3</li>
-            <li>ReID Match Threshold: 0.2</li>
-        </ul>
-    </div>
-    
-    <div style="flex: 1 1 100%; display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-        <button class="action-button clear-button" id="clearButton">Очистити</button>
-        <button class="action-button submit-button" id="submitButton">Розпочати Детекцію</button>
-    </div>
+    <button class="action-button clear-button" id="clearButton">Очистити</button>
+    <button class="action-button submit-button" id="submitButton">Розпочати Обробку</button>
 </div>
 
 <script>
 let currentJobId = null;
+let linePoints = []; // Зберігатиме точки лінії [(x1, y1), (x2, y2)]
+const drawingCanvas = document.getElementById('drawingCanvas');
+const ctx = drawingCanvas.getContext('2d');
+const videoPreview = document.getElementById('videoPreview');
+const point1Marker = document.getElementById('point1Marker');
+const point2Marker = document.getElementById('point2Marker');
+const lineCoordinatesDisplay = document.getElementById('lineCoordinatesDisplay');
 
 function updateFileName() {
     const fileInput = document.getElementById('mediaFile');
     const display = document.getElementById('fileNameDisplay');
+    const videoPreviewContainer = document.getElementById('videoPreviewContainer');
+
     if (fileInput.files.length > 0) {
-        display.innerText = '✅ Файл готовий: ' + fileInput.files[0].name;
+        const file = fileInput.files[0];
+        display.innerText = 'Файл готовий: ' + file.name;
+
+        const fileURL = URL.createObjectURL(file);
+        videoPreview.src = fileURL;
+        videoPreviewContainer.style.display = 'block';
+        videoPreview.load(); // Завантажуємо відео для отримання розмірів
+        videoPreview.onloadedmetadata = () => {
+            drawingCanvas.width = videoPreview.videoWidth;
+            drawingCanvas.height = videoPreview.videoHeight;
+            // Пропорційно зменшуємо canvas, щоб він вмістився в контейнер
+            const containerWidth = videoPreviewContainer.clientWidth;
+            const scale = containerWidth / videoPreview.videoWidth;
+            drawingCanvas.style.width = `${containerWidth}px`;
+            drawingCanvas.style.height = `${videoPreview.videoHeight * scale}px`;
+
+            // Якщо є вже намальовані точки, перемалювати їх з новими розмірами
+            if (linePoints.length > 0) {
+                drawLine();
+                updateMarkers();
+            }
+        };
+
     } else {
         display.innerText = '';
+        videoPreviewContainer.style.display = 'none';
+        videoPreview.src = '';
+        clearLineDrawing();
     }
 }
 
+function clearLineDrawing() {
+    linePoints = [];
+    ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    point1Marker.style.display = 'none';
+    point2Marker.style.display = 'none';
+    lineCoordinatesDisplay.innerText = '';
+}
+
 function clearInterface() {
-    document.getElementById('mediaFile').value = ''; 
+    document.getElementById('mediaFile').value = '';
     document.getElementById('fileNameDisplay').innerText = '';
-    document.querySelector('#result').innerHTML = '<p style="color: var(--text-secondary);">Результат зявиться тут.</p>'; 
+    document.querySelector('#result').innerHTML = '<p style="color: var(--text-secondary);">Результат з\'явиться тут.</p>';
+
+    // Скидання прогрес-бару
     document.querySelector('#progressBar div').style.width = '0%';
     document.querySelector('#progressBar div').innerText = '';
+    document.getElementById('progressBar').style.display = 'none';
+
     currentJobId = null;
+
+    // Скидання параметрів
+    document.getElementById('skipFrames').value = 3;
+    document.getElementById('confThreshold').value = 0.6;
+
+    clearLineDrawing(); // Очистити намальовану лінію та прев'ю
+    document.getElementById('videoPreviewContainer').style.display = 'none';
+
+    const submitBtn = document.getElementById('submitButton');
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = "1";
+    submitBtn.innerText = "Розпочати Обробку";
 }
+
+function drawLine() {
+    ctx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    if (linePoints.length === 1) {
+        ctx.beginPath();
+        ctx.moveTo(linePoints[0].x, 0);
+        ctx.lineTo(linePoints[0].x, drawingCanvas.height);
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+}
+
+function updateMarkers() {
+    const videoRect = videoPreview.getBoundingClientRect();
+    const canvasRect = drawingCanvas.getBoundingClientRect();
+
+    const scaleX = videoPreview.videoWidth / canvasRect.width;
+    const scaleY = videoPreview.videoHeight / canvasRect.height;
+
+    if (linePoints[0]) {
+        point1Marker.style.left = `${(linePoints[0].x / scaleX) + canvasRect.left - videoRect.left}px`;
+        point1Marker.style.top = `${(linePoints[0].y / scaleY) + canvasRect.top - videoRect.top}px`;
+        point1Marker.style.display = 'block';
+    } else {
+        point1Marker.style.display = 'none';
+    }
+
+    if (linePoints[1]) {
+        point2Marker.style.left = `${(linePoints[1].x / scaleX) + canvasRect.left - videoRect.left}px`;
+        point2Marker.style.top = `${(linePoints[1].y / scaleY) + canvasRect.top - videoRect.top}px`;
+        point2Marker.style.display = 'block';
+    } else {
+        point2Marker.style.display = 'none';
+    }
+
+    if (linePoints.length === 1) {
+        lineCoordinatesDisplay.innerText = `Line: (${linePoints[0].x},${linePoints[0].y}) - (${linePoints[1].x},${linePoints[1].y})`;
+    } else {
+        lineCoordinatesDisplay.innerText = '';
+    }
+}
+
+drawingCanvas.addEventListener('click', (e) => {
+    const rect = drawingCanvas.getBoundingClientRect();
+    const scaleX = drawingCanvas.width / rect.width;
+    const scaleY = drawingCanvas.height / rect.height;
+
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    if (linePoints.length < 1) {
+        linePoints.push({ x: Math.round(x), y: Math.round(y) });
+    } else {
+        linePoints = [{ x: Math.round(x), y: Math.round(y) }]; // Почати малювати нову лінію
+    }
+    drawLine();
+    updateMarkers();
+});
 
 async function handleSubmission() {
     const fileInput = document.getElementById('mediaFile');
     const resultDiv = document.querySelector('#result');
+    const progressBar = document.getElementById('progressBar');
     const progressDiv = document.querySelector('#progressBar div');
-    
+    const submitBtn = document.getElementById('submitButton');
+
     if (fileInput.files.length === 0) {
-        alert("Будь ласка, завантажте файл.");
+        alert("Будь ласка, завантажте відеофайл.");
         return;
     }
-    
-    // Скидання стану
-    resultDiv.innerHTML = '<h3>⏳ Обробка...</h3>';
+
+    if (linePoints.length < 1) {
+        alert("Будь ласка, вкажіть точку для лінії перетину на відео прев'ю.");
+        return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.style.opacity = "0.6";
+    submitBtn.innerText = "Обробка...";
+    progressBar.style.display = 'block';
+
+    resultDiv.innerHTML = '<h3>Відправка на сервер...</h3>';
     progressDiv.style.width = '0%';
     progressDiv.innerText = '0%';
-    
+
     const file = fileInput.files[0];
     const formData = new FormData();
     formData.append('file', file);
-    
-    const isVideo = file.type.startsWith('video');
-    const uploadUrl = isVideo ? '/upload_video' : '/upload_image';
+
+    const uploadUrl = '/upload_video';
+
+    // Зчитуємо параметри
+    const skipFrames = document.getElementById('skipFrames').value;
+    const confThreshold = document.getElementById('confThreshold').value;
+
+    formData.append('skip_frames', skipFrames);
+    formData.append('conf', confThreshold);
+    formData.append('line_p1_x', linePoints[0].x);
+    formData.append('line_p1_y', 0);
+    formData.append('line_p2_x', linePoints[0].x);
+    formData.append('line_p2_y', drawingCanvas.height);
 
     try {
         const response = await fetch(uploadUrl, { method:'POST', body: formData });
+
         if (!response.ok) {
-             throw new Error(`Помилка завантаження: ${response.status} ${response.statusText}`);
+            throw new Error(`Помилка завантаження: ${response.status} ${response.statusText}`);
         }
 
-        if (isVideo) {
-            const data = await response.json();
-            currentJobId = data.job_id;
-            pollProgress(data.result_path, currentJobId);
-        } else {
-            const html = await response.text();
-            const imgSourceMatch = html.match(/src="([^"]+)"/);
-            if (imgSourceMatch && imgSourceMatch[1]) {
-                resultDiv.innerHTML = `<h3>✅ Результат зображення:</h3><img src="${imgSourceMatch[1]}" alt="Detection Result">`;
-            } else {
-                resultDiv.innerHTML = '<h3>✅ Результат зображення:</h3>' + html;
-            }
-            
-            progressDiv.style.width = '100%';
-            progressDiv.innerText = '100%';
-        }
+        const data = await response.json();
+        currentJobId = data.job_id;
+        resultDiv.innerHTML = `<h3>Обробка...</h3>`;
+        pollProgress(data.result_path, currentJobId);
 
     } catch (error) {
         console.error(error);
-        resultDiv.innerHTML = `<h3>❌ Помилка: ${error.message}</h3>`;
+        resultDiv.innerHTML = `<h3>Помилка: ${error.message}</h3>`;
         progressDiv.style.width = '0%';
         progressDiv.innerText = '';
+        progressBar.style.display = 'none';
+
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = "1";
+        submitBtn.innerText = "Розпочати Обробку";
     }
 }
 
 function pollProgress(resultPath, jobId) {
     const resultDiv = document.querySelector('#result');
     const progressDiv = document.querySelector('#progressBar div');
-    
+    const progressBar = document.getElementById('progressBar');
+    const submitBtn = document.getElementById('submitButton');
+
     const interval = setInterval(async () => {
-        const res = await fetch('/progress/' + jobId);
-        const prog = await res.json();
-        const percent = Math.min(100, Math.round(prog.progress));
+        try {
+            const res = await fetch('/progress/' + jobId);
+            const prog = await res.json();
+            const percent = Math.min(100, Math.round(prog.progress));
 
-        progressDiv.style.width = percent + '%';
-        progressDiv.innerText = percent + '%';
+            progressDiv.style.width = percent + '%';
+            progressDiv.innerText = percent + '%';
 
-        if (percent >= 100) {
+            if (percent >= 100) {
+                clearInterval(interval);
+                resultDiv.innerHTML = `
+                    <h3>Відео Оброблене!</h3>
+                    <div class="video-wrapper">
+                        <video width="100%" controls autoplay loop muted>
+                            <source src="${resultPath}" type="video/mp4">
+                            Ваш браузер не підтримує тег відео.
+                        </video>
+                    </div>
+                `;
+
+                currentJobId = null;
+
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = "1";
+                submitBtn.innerText = "Розпочати Обробку";
+                progressBar.style.display = 'none';
+
+            } else if (percent < 0) {
+                // Обробка помилки
+                clearInterval(interval);
+                resultDiv.innerHTML = '<h3>Помилка обробки відео.</h3>';
+                progressDiv.style.width = '0%';
+                progressDiv.innerText = '';
+                progressBar.style.display = 'none';
+
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = "1";
+                submitBtn.innerText = "Розпочати Обробку";
+            }
+        } catch (e) {
             clearInterval(interval);
-            resultDiv.innerHTML = `
-                <h3>✅ Відео Оброблене!</h3>
-                <div class="video-wrapper">
-                    <video width="100%" controls autoplay loop muted>
-                        <source src="${resultPath}" type="video/mp4">
-                        Ваш браузер не підтримує тег відео.
-                    </video>
-                </div>
-            `;
-            currentJobId = null;
+            resultDiv.innerHTML = '<h3>Помилка зв\'язку з сервером.</h3>';
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = "1";
+            submitBtn.innerText = "Розпочати Обробку";
+            progressBar.style.display = 'none';
         }
-    }, 500);
+    }, 500); // Опитуємо кожні 0.5 секунди
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     const dropArea = document.getElementById('dropArea');
     const mediaFileInput = document.getElementById('mediaFile');
-    
-    document.getElementById('submitButton').addEventListener('click', handleSubmission); 
+
+    document.getElementById('submitButton').addEventListener('click', handleSubmission);
     document.getElementById('clearButton').addEventListener('click', clearInterface);
-    
+
     document.getElementById('mediaFile').addEventListener('change', updateFileName);
 
+    // Логіка Drag & Drop
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
       dropArea.addEventListener(eventName, preventDefaults, false);
     });
@@ -394,5 +617,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 </script>
+
 </body>
 </html>
